@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"net"
 	"sync"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -23,9 +24,16 @@ type server struct {
 	desc.UnimplementedChatV1Server
 }
 
+type Message struct {
+	fromUserId int64
+	text       string
+	createdAt  time.Time
+}
+
 type Chat struct {
-	id      int64
-	userIds []int64
+	id       int64
+	userIds  []int64
+	messages []*Message
 }
 
 type SyncMap struct {
@@ -49,8 +57,9 @@ func (s *server) Create(ctx context.Context, req *desc.CreateRequest) (*desc.Cre
 	}
 
 	createdChat := &Chat{
-		id:      rand.Int63(),
-		userIds: req.GetUserIds(),
+		id:       rand.Int63(),
+		userIds:  req.GetUserIds(),
+		messages: []*Message{},
 	}
 
 	state.mutex.Lock()
@@ -79,6 +88,56 @@ func (s *server) Delete(ctx context.Context, req *desc.DeleteRequest) (*emptypb.
 	}
 
 	delete(state.chats, req.Id)
+
+	return nil, nil
+}
+
+func (s *server) SendMessage(ctx context.Context, req *desc.SendMessageRequest) (*emptypb.Empty, error) {
+	log.Printf("SendMessage, req: %+v", req)
+
+	if req.GetChatId() == 0 {
+		return nil, status.Error(codes.InvalidArgument, "ChatId is required")
+	}
+
+	if req.GetFromUserId() == 0 {
+		return nil, status.Error(codes.InvalidArgument, "FromUserId is required")
+	}
+
+	if req.GetText() == "" {
+		return nil, status.Error(codes.InvalidArgument, "Text is required")
+	}
+
+	if req.GetCreatedAt().String() == "" {
+		return nil, status.Error(codes.InvalidArgument, "CreatedAt is required")
+	}
+
+	chat, ok := state.chats[req.GetChatId()]
+	if !ok {
+		return nil, status.Error(codes.InvalidArgument, "Chat not found")
+	}
+
+	isUserPresentedInChat := false
+	for _, value := range chat.userIds {
+		if value == req.GetFromUserId() {
+			isUserPresentedInChat = true
+			break
+		}
+	}
+
+	if !isUserPresentedInChat {
+		return nil, status.Error(codes.InvalidArgument, "FromUserId is not presented in chat user ids")
+	}
+
+	state.mutex.Lock()
+	defer state.mutex.Unlock()
+
+	chat.messages = append(chat.messages, &Message{
+		fromUserId: req.GetFromUserId(),
+		text:       req.GetText(),
+		createdAt:  req.GetCreatedAt().AsTime(),
+	})
+
+	log.Printf("SendMessage, text: %+v", req.GetText())
 
 	return nil, nil
 }
