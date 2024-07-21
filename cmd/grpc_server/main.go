@@ -152,7 +152,7 @@ func main() {
 	reflection.Register(s)
 	desc.RegisterChatV1Server(s, &server{})
 
-	log.Printf("Server listening at %v", lis.Addr())
+	log.Printf("server listening at %v", lis.Addr())
 
 	if err = s.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
